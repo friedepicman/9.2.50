@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Draggable Vector Visualization</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+        }
+        #info {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            max-width: 320px;
+        }
+        #info h3 {
+            margin: 0 0 10px 0;
+            color: #333;
+        }
+        .angle-info {
+            margin: 12px 0;
+            padding: 8px;
+            background: #f8f8f8;
+            border-radius: 5px;
+        }
+        .angle-info label {
+            display: block;
+            font-weight: bold;
+            font-size: 14px;
+            margin-bottom: 5px;
+        }
+        .angle-display {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13px;
+            margin-top: 3px;
+        }
+        .color-box {
+            width: 15px;
+            height: 15px;
+            display: inline-block;
+            margin-right: 5px;
+            border-radius: 3px;
+            border: 1px solid #ccc;
+        }
+        .blue { background-color: #4488ff; }
+        .pink { background-color: #ff69b4; }
+        .red { background-color: #ff4444; }
+        #verification {
+            margin-top: 15px;
+            padding: 10px;
+            background: #e8f5e9;
+            border-radius: 5px;
+            font-size: 12px;
+            border: 1px solid #4caf50;
+        }
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+        button {
+            margin: 5px;
+            padding: 8px 15px;
+            border: none;
+            border-radius: 5px;
+            background: #4488ff;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #3366cc;
+        }
+        .hint {
+            font-size: 11px;
+            color: #888;
+            margin-top: 10px;
+            padding: 8px;
+            background: #fff3cd;
+            border-radius: 4px;
+            border: 1px solid #ffc107;
+        }
+        #vector-info {
+            margin-top: 10px;
+            padding: 8px;
+            background: #f0f0f0;
+            border-radius: 5px;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div id="canvas-container"></div>
+    
+    <div id="info">
+        <h3>Vector Direction Cosines</h3>
+        
+        <div id="vector-info">
+            <strong>Vector:</strong> (<span id="vec-x">1.75</span>, <span id="vec-y">1.56</span>, <span id="vec-z">3.24</span>)<br>
+            <strong>Length:</strong> <span id="vec-length">4.00</span>
+        </div>
+
+        <div class="angle-info">
+            <label><span class="color-box blue"></span>α (angle with x-axis)</label>
+            <div class="angle-display">
+                <span>Angle: <strong id="alpha-value">64.0°</strong></span>
+                <span>cos α = <strong id="cos-alpha">0.438</strong></span>
+            </div>
+        </div>
+
+        <div class="angle-info">
+            <label><span class="color-box pink"></span>β (angle with y-axis)</label>
+            <div class="angle-display">
+                <span>Angle: <strong id="beta-value">67.0°</strong></span>
+                <span>cos β = <strong id="cos-beta">0.391</strong></span>
+            </div>
+        </div>
+
+        <div class="angle-info">
+            <label><span class="color-box red"></span>γ (angle with z-axis)</label>
+            <div class="angle-display">
+                <span>Angle: <strong id="gamma-value">36.0°</strong></span>
+                <span>cos γ = <strong id="cos-gamma">0.809</strong></span>
+            </div>
+        </div>
+
+        <div id="verification">
+            <strong>✓ Verification:</strong><br>
+            <span id="cos2-alpha">0.192</span> + <span id="cos2-beta">0.153</span> + <span id="cos2-gamma">0.655</span> = <strong id="sum-value">1.000</strong>
+        </div>
+
+        <div class="hint">
+            <strong>🖱️ Drag the black sphere</strong> to move the vector!<br>
+            Rotate view: drag background • Zoom: scroll
+        </div>
+    </div>
+
+    <div id="controls">
+        <button onclick="toggleAngles()">Toggle Angles</button>
+        <button onclick="toggleProjections()">Toggle Projections</button>
+        <button onclick="resetView()">Reset View</button>
+        <button onclick="resetVector()">Reset Vector</button>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Scene setup
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0xf0f0f0);
+        
+        const camera = new THREE.PerspectiveCamera(
+            75,
+            window.innerWidth / window.innerHeight,
+            0.1,
+            1000
+        );
+        camera.position.set(6, 6, 6);
+        camera.lookAt(0, 0, 0);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.getElementById('canvas-container').appendChild(renderer.domElement);
+
+        // Raycaster for mouse interaction
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        // Vector parameters
+        const vectorLength = 4;
+        let vectorPosition = new THREE.Vector3(1.75, 1.56, 3.24); // Initial position
+
+        // Create axes
+        const axesHelper = new THREE.AxesHelper(5);
+        scene.add(axesHelper);
+
+        // Add grid
+        const gridHelper = new THREE.GridHelper(10, 10, 0xcccccc, 0xeeeeee);
+        scene.add(gridHelper);
+
+        // Create labeled axes with arrows
+        function createAxis(color, direction, length = 5) {
+            const arrowHelper = new THREE.ArrowHelper(
+                direction.normalize(),
+                new THREE.Vector3(0, 0, 0),
+                length,
+                color,
+                0.5,
+                0.3
+            );
+            scene.add(arrowHelper);
+        }
+
+        createAxis(0x4488ff, new THREE.Vector3(1, 0, 0));
+        createAxis(0xff69b4, new THREE.Vector3(0, 1, 0));
+        createAxis(0xff4444, new THREE.Vector3(0, 0, 1));
+
+        // Groups for dynamic objects
+        const vectorGroup = new THREE.Group();
+        const anglesGroup = new THREE.Group();
+        const projectionsGroup = new THREE.Group();
+
+        scene.add(vectorGroup);
+        scene.add(anglesGroup);
+        scene.add(projectionsGroup);
+
+        let anglesVisible = true;
+        let projectionsVisible = false;
+        projectionsGroup.visible = projectionsVisible;
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(ambientLight);
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.4);
+        directionalLight.position.set(5, 5, 5);
+        scene.add(directionalLight);
+
+        // Draggable sphere
+        let draggableSphere;
+        let isDraggingSphere = false;
+        let dragPlane = new THREE.Plane();
+        let dragPlaneNormal = new THREE.Vector3();
+        let dragOffset = new THREE.Vector3();
+
+        // Helper function to create a filled angle sector
+        function createAngleArc(axis, vector, color, angle) {
+            const arcRadius = 1.5;
+            const segments = 32;
+            const vertices = [];
+            const indices = [];
+            
+            const axisNorm = axis.clone().normalize();
+            const vectorNorm = vector.clone().normalize();
+            
+            vertices.push(0, 0, 0);
+            
+            for (let i = 0; i <= segments; i++) {
+                const t = i / segments;
+                const currentAngle = angle * t;
+                
+                const perpendicular = new THREE.Vector3().crossVectors(axisNorm, vectorNorm).normalize();
+                const quaternion = new THREE.Quaternion();
+                quaternion.setFromAxisAngle(perpendicular, currentAngle);
+                
+                const point = axisNorm.clone().applyQuaternion(quaternion).multiplyScalar(arcRadius);
+                vertices.push(point.x, point.y, point.z);
+            }
+            
+            for (let i = 1; i <= segments; i++) {
+                indices.push(0, i, i + 1);
+            }
+            
+            const arcGeometry = new THREE.BufferGeometry();
+            arcGeometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+            arcGeometry.setIndex(indices);
+            arcGeometry.computeVertexNormals();
+            
+            const arcMaterial = new THREE.MeshBasicMaterial({ 
+                color: color, 
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.6
+            });
+            
+            return new THREE.Mesh(arcGeometry, arcMaterial);
+        }
+
+        // Function to update the entire visualization
+        function updateVisualization() {
+            // Normalize to keep constant length
+            vectorPosition.normalize().multiplyScalar(vectorLength);
+            
+            const vectorX = vectorPosition.x;
+            const vectorY = vectorPosition.y;
+            const vectorZ = vectorPosition.z;
+            const length = vectorPosition.length();
+
+            // Calculate angles from vector components
+            const xAxis = new THREE.Vector3(1, 0, 0);
+            const yAxis = new THREE.Vector3(0, 1, 0);
+            const zAxis = new THREE.Vector3(0, 0, 1);
+            
+            const alpha = vectorPosition.angleTo(xAxis);
+            const beta = vectorPosition.angleTo(yAxis);
+            const gamma = vectorPosition.angleTo(zAxis);
+
+            // Calculate direction cosines
+            const cosAlpha = vectorX / length;
+            const cosBeta = vectorY / length;
+            const cosGamma = vectorZ / length;
+
+            // Update UI
+            document.getElementById('vec-x').textContent = vectorX.toFixed(2);
+            document.getElementById('vec-y').textContent = vectorY.toFixed(2);
+            document.getElementById('vec-z').textContent = vectorZ.toFixed(2);
+            document.getElementById('vec-length').textContent = length.toFixed(2);
+
+            document.getElementById('alpha-value').textContent = (alpha * 180 / Math.PI).toFixed(1) + '°';
+            document.getElementById('beta-value').textContent = (beta * 180 / Math.PI).toFixed(1) + '°';
+            document.getElementById('gamma-value').textContent = (gamma * 180 / Math.PI).toFixed(1) + '°';
+            
+            document.getElementById('cos-alpha').textContent = cosAlpha.toFixed(3);
+            document.getElementById('cos-beta').textContent = cosBeta.toFixed(3);
+            document.getElementById('cos-gamma').textContent = cosGamma.toFixed(3);
+            
+            const cos2Alpha = cosAlpha**2;
+            const cos2Beta = cosBeta**2;
+            const cos2Gamma = cosGamma**2;
+            const sum = cos2Alpha + cos2Beta + cos2Gamma;
+            
+            document.getElementById('cos2-alpha').textContent = cos2Alpha.toFixed(3);
+            document.getElementById('cos2-beta').textContent = cos2Beta.toFixed(3);
+            document.getElementById('cos2-gamma').textContent = cos2Gamma.toFixed(3);
+            document.getElementById('sum-value').textContent = sum.toFixed(3);
+
+            // Clear existing objects
+            vectorGroup.clear();
+            anglesGroup.clear();
+            projectionsGroup.clear();
+
+            // Create the main vector
+            const vectorGeometry = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(0, 0, 0),
+                new THREE.Vector3(vectorX, vectorY, vectorZ)
+            ]);
+            const vectorMaterial = new THREE.LineBasicMaterial({ 
+                color: 0x000000, 
+                linewidth: 3 
+            });
+            const vectorLine = new THREE.Line(vectorGeometry, vectorMaterial);
+            vectorGroup.add(vectorLine);
+
+            // Add arrow to vector
+            const vectorDirection = vectorPosition.clone().normalize();
+            const vectorArrow = new THREE.ArrowHelper(
+                vectorDirection,
+                new THREE.Vector3(0, 0, 0),
+                vectorLength,
+                0x000000,
+                0.6,
+                0.4
+            );
+            vectorGroup.add(vectorArrow);
+
+            // Add draggable sphere at vector endpoint
+            const sphereGeometry = new THREE.SphereGeometry(0.2, 32, 32);
+            const sphereMaterial = new THREE.MeshStandardMaterial({ 
+                color: 0x000000,
+                emissive: isDraggingSphere ? 0x444444 : 0x000000
+            });
+            draggableSphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+            draggableSphere.position.copy(vectorPosition);
+            draggableSphere.userData.draggable = true;
+            vectorGroup.add(draggableSphere);
+
+            // Create angle arcs
+            const mainVector = vectorPosition.clone();
+
+            const arcX = createAngleArc(xAxis, mainVector, 0x4488ff, alpha);
+            const arcY = createAngleArc(yAxis, mainVector, 0xff69b4, beta);
+            const arcZ = createAngleArc(zAxis, mainVector, 0xff4444, gamma);
+
+            anglesGroup.add(arcX, arcY, arcZ);
+
+            // Create projection lines
+            const projXGeometry = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(vectorX, vectorY, vectorZ),
+                new THREE.Vector3(vectorX, 0, 0)
+            ]);
+            const projXMaterial = new THREE.LineDashedMaterial({ 
+                color: 0x4488ff, 
+                dashSize: 0.2, 
+                gapSize: 0.1 
+            });
+            const projXLine = new THREE.Line(projXGeometry, projXMaterial);
+            projXLine.computeLineDistances();
+            projectionsGroup.add(projXLine);
+
+            const projYGeometry = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(vectorX, vectorY, vectorZ),
+                new THREE.Vector3(0, vectorY, 0)
+            ]);
+            const projYMaterial = new THREE.LineDashedMaterial({ 
+                color: 0xff69b4, 
+                dashSize: 0.2, 
+                gapSize: 0.1 
+            });
+            const projYLine = new THREE.Line(projYGeometry, projYMaterial);
+            projYLine.computeLineDistances();
+            projectionsGroup.add(projYLine);
+
+            const projZGeometry = new THREE.BufferGeometry().setFromPoints([
+                new THREE.Vector3(vectorX, vectorY, vectorZ),
+                new THREE.Vector3(0, 0, vectorZ)
+            ]);
+            const projZMaterial = new THREE.LineDashedMaterial({ 
+                color: 0xff4444, 
+                dashSize: 0.2, 
+                gapSize: 0.1 
+            });
+            const projZLine = new THREE.Line(projZGeometry, projZMaterial);
+            projZLine.computeLineDistances();
+            projectionsGroup.add(projZLine);
+        }
+
+        // Mouse interaction
+        let isRotatingView = false;
+        let previousMousePosition = { x: 0, y: 0 };
+        let rotation = { x: 0.5, y: 0.5 };
+
+        function onMouseDown(event) {
+            event.preventDefault();
+            
+            // Calculate mouse position in normalized device coordinates
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            // Check for intersection with draggable sphere
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects([draggableSphere]);
+
+            if (intersects.length > 0) {
+                isDraggingSphere = true;
+                
+                // Create drag plane perpendicular to camera
+                dragPlaneNormal.subVectors(camera.position, new THREE.Vector3(0, 0, 0)).normalize();
+                dragPlane.setFromNormalAndCoplanarPoint(dragPlaneNormal, vectorPosition);
+                
+                // Calculate offset
+                const intersection = new THREE.Vector3();
+                raycaster.ray.intersectPlane(dragPlane, intersection);
+                dragOffset.subVectors(vectorPosition, intersection);
+                
+                updateVisualization();
+            } else {
+                isRotatingView = true;
+                previousMousePosition = { x: event.clientX, y: event.clientY };
+            }
+        }
+
+        function onMouseMove(event) {
+            if (isDraggingSphere) {
+                event.preventDefault();
+                
+                mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+                raycaster.setFromCamera(mouse, camera);
+                
+                const intersection = new THREE.Vector3();
+                raycaster.ray.intersectPlane(dragPlane, intersection);
+                
+                vectorPosition.copy(intersection.add(dragOffset));
+                
+                updateVisualization();
+            } else if (isRotatingView) {
+                const deltaX = event.clientX - previousMousePosition.x;
+                const deltaY = event.clientY - previousMousePosition.y;
+                
+                rotation.y += deltaX * 0.005;
+                rotation.x += deltaY * 0.005;
+                
+                previousMousePosition = { x: event.clientX, y: event.clientY };
+            }
+        }
+
+        function onMouseUp() {
+            isDraggingSphere = false;
+            isRotatingView = false;
+            if (draggableSphere) {
+                updateVisualization();
+            }
+        }
+
+        renderer.domElement.addEventListener('mousedown', onMouseDown);
+        renderer.domElement.addEventListener('mousemove', onMouseMove);
+        renderer.domElement.addEventListener('mouseup', onMouseUp);
+
+        // Zoom with mouse wheel
+        renderer.domElement.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const zoomSpeed = 0.3;
+            const direction = camera.position.clone().normalize();
+            if (e.deltaY < 0) {
+                camera.position.sub(direction.multiplyScalar(zoomSpeed));
+            } else {
+                camera.position.add(direction.multiplyScalar(zoomSpeed));
+            }
+        });
+
+        // Control functions
+        function toggleAngles() {
+            anglesVisible = !anglesVisible;
+            anglesGroup.visible = anglesVisible;
+        }
+
+        function toggleProjections() {
+            projectionsVisible = !projectionsVisible;
+            projectionsGroup.visible = projectionsVisible;
+        }
+
+        function resetView() {
+            camera.position.set(6, 6, 6);
+            rotation = { x: 0.5, y: 0.5 };
+        }
+
+        function resetVector() {
+            vectorPosition.set(1.75, 1.56, 3.24);
+            updateVisualization();
+        }
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            // Apply rotation
+            const distance = camera.position.length();
+            camera.position.x = distance * Math.cos(rotation.y) * Math.cos(rotation.x);
+            camera.position.y = distance * Math.sin(rotation.x);
+            camera.position.z = distance * Math.sin(rotation.y) * Math.cos(rotation.x);
+            camera.lookAt(0, 0, 0);
+            
+            renderer.render(scene, camera);
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Initial setup
+        updateVisualization();
+        animate();
+    </script>
+</body>
+</html>
